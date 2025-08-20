@@ -57,16 +57,44 @@ class JobMonitor {
         this.jobCache.set(job.id, job);
       });
 
-      // Prepare dashboard data
-      const dashboardData = {
-        jobs: jobs.slice(0, 20),
-        backends: backends.slice(0, 15),
-        systemStats,
-        statusChanges,
-        newJobs,
-        lastUpdate: new Date().toISOString(),
+      // Prepare dashboard data in the same format as the dashboard controller
+      const summary = {
         totalJobs: jobs.length,
-        monitoringActive: true
+        runningJobs: jobs.filter(job => job.status === 'RUNNING').length,
+        queuedJobs: jobs.filter(job => job.status === 'QUEUED').length,
+        completedJobs: jobs.filter(job => job.status === 'COMPLETED').length,
+        errorJobs: jobs.filter(job => job.status === 'ERROR' || job.status === 'CANCELLED').length,
+        totalBackends: backends.length,
+        onlineBackends: backends.filter(backend => backend.status?.operational || backend.status === 'online').length,
+        lastUpdate: new Date().toISOString()
+      };
+
+      const dashboardData = {
+        summary,
+        recentJobs: jobs.slice(0, 10).map(job => ({
+          id: job.id,
+          name: job.name || `Job ${job.id}`,
+          status: job.status,
+          backend: job.backend,
+          creation_date: job.creation_date,
+          shots: job.shots,
+          qubits: job.qubits
+        })),
+        backends: backends.slice(0, 8).map(backend => ({
+          name: backend.name,
+          status: backend.status?.operational ? 'online' : 'offline',
+          qubits: backend.n_qubits || backend.num_qubits,
+          simulator: backend.simulator,
+          pending_jobs: backend.pending_jobs || 0,
+          basis_gates: backend.basis_gates?.slice(0, 5) || []
+        })),
+        monitoring: {
+          isActive: this.isMonitoring,
+          lastUpdate: this.lastUpdate,
+          cachedJobs: this.jobCache.size,
+          connectedClients: this.io.engine.clientsCount
+        },
+        timestamp: new Date().toISOString()
       };
 
       // Emit updates to all connected clients
@@ -138,10 +166,11 @@ class JobMonitor {
     this.io = io;
     this.isMonitoring = true;
 
-    // Initial monitoring
     setTimeout(() => {
-      this.monitorJobs();
-    }, 2000);
+      this.monitorJobs().catch(error => {
+        logger.error('Error in initial monitoring:', error);
+      });
+    }, 5000); // Increased delay
 
     // Schedule monitoring every 60 seconds
     this.monitoringInterval = cron.schedule('*/60 * * * * *', () => {

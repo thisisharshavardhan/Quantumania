@@ -18,14 +18,15 @@ dotenv.config();
 
 const app = express();
 const server = createServer(app);
+
 const PORT = process.env.PORT || 3849;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// CORS configuration - flexible for development, strict for production
+// Enhanced CORS configuration - more permissive for development
 const corsOptions = {
   origin: isProduction 
     ? (process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173'])
-    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://10.0.3.81:5173'],
+    : true, // Allow all origins in development
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -39,7 +40,7 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// Rate limiting configuration
+// Enhanced rate limiting for production
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
@@ -49,15 +50,19 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === '/health';
+  handler: (req, res) => {
+    logger.warn(`Rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      error: 'Too many requests from this IP, please try again later.',
+      retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000) / 1000)
+    });
   }
 });
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: isProduction ? {
+  contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
@@ -69,7 +74,7 @@ app.use(helmet({
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
     },
-  } : false,
+  },
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
@@ -86,6 +91,7 @@ app.use(compression({
 }));
 
 app.use(cors(corsOptions));
+app.use('/api', limiter);
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
@@ -107,16 +113,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Apply rate limiting to API routes
-app.use('/api', limiter);
-
 // Make io accessible to routes
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// Health check endpoint (accessible without rate limiting)
+// Health check endpoint (before rate limiting)
 app.get('/health', (req, res) => {
   const healthcheck = {
     uptime: process.uptime(),
@@ -211,7 +214,7 @@ app.use((req, res) => {
   });
 });
 
-// Socket.io connection handling
+// Socket.io connection handling with enhanced error handling
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id} from ${socket.handshake.address}`);
   
@@ -260,7 +263,7 @@ server.listen(PORT, '0.0.0.0', (err) => {
   }
   logger.info(`🚀 Quantumania Backend Server started on port ${PORT}`);
   logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🔗 Dashboard API: http://localhost:${PORT}`);
+  logger.info(`� Dashboard API: http://localhost:${PORT}`);
   logger.info(`⚛️ Quantum API: http://localhost:${PORT}/api/quantum`);
   logger.info(`💓 Health Check: http://localhost:${PORT}/health`);
   logger.info(`📚 API Docs: http://localhost:${PORT}/api-docs`);

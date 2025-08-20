@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  quantumania-backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: quantumania-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3849
+      - CORS_ORIGIN=http://localhost:5173,https://quantumania.yourdomain.com
+      - RATE_LIMIT_WINDOW_MS=900000
+      - RATE_LIMIT_MAX_REQUESTS=1000
+      - LOG_LEVEL=info
+      - CACHE_TTL=300000
+      - JOB_MONITOR_INTERVAL=30000
+    env_file:
+      - ./Backend/.env
+    ports:
+      - "3849:3849"
+    volumes:
+      - ./Backend/logs:/app/logs
+      - backend_data:/app/data
+    networks:
+      - quantumania-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3849/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  quantumania-frontend:
+    build:
+      context: ./Website
+      dockerfile: Dockerfile
+    container_name: quantumania-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      quantumania-backend:
+        condition: service_healthy
+    networks:
+      - quantumania-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: quantumania-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-quantumania123}
+    volumes:
+      - redis_data:/data
+    networks:
+      - quantumania-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # Optional: Add PostgreSQL for persistent data storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: quantumania-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quantumania}
+      POSTGRES_USER: ${POSTGRES_USER:-quantumania}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantumania123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./Backend/sql:/docker-entrypoint-initdb.d
+    networks:
+      - quantumania-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quantumania}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: quantumania-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - quantumania-network
+
+  # Optional: Add Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: quantumania-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - quantumania-network
+
+networks:
+  quantumania-network:
+    driver: bridge
+
+volumes:
+  backend_data:
+  redis_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
