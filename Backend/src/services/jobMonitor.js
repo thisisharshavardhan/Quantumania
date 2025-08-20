@@ -143,16 +143,16 @@ class JobMonitor {
       this.monitorJobs();
     }, 2000);
 
-    // Schedule monitoring every 30 seconds
-    this.monitoringInterval = cron.schedule('*/30 * * * * *', () => {
+    // Schedule monitoring every 60 seconds
+    this.monitoringInterval = cron.schedule('*/60 * * * * *', () => {
       this.monitorJobs();
     }, {
       scheduled: true,
       timezone: "UTC"
     });
 
-    // Also run a deeper scan every 5 minutes
-    cron.schedule('*/5 * * * *', async () => {
+    // Also run a deeper scan every 10 minutes instead of 5
+    cron.schedule('*/10 * * * *', async () => {
       try {
         logger.info('🔍 Running deep system scan...');
         const stats = await ibmQuantumService.getSystemStats();
@@ -169,8 +169,8 @@ class JobMonitor {
       timezone: "UTC"
     });
 
-    logger.info('🚀 Job monitoring started - updating every 30 seconds');
-    logger.info('🔍 Deep system scans every 5 minutes');
+    logger.info('🚀 Job monitoring started - updating every 60 seconds');
+    logger.info('🔍 Deep system scans every 10 minutes');
   }
 
   stopMonitoring() {

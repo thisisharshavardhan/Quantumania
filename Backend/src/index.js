@@ -120,7 +120,9 @@ io.on('connection', (socket) => {
 
 // Start job monitoring
 try {
+  logger.info('Starting job monitoring...');
   startJobMonitoring(io);
+  logger.info('Job monitoring started successfully');
 } catch (error) {
   logger.error('Failed to start job monitoring:', error.message);
 }
