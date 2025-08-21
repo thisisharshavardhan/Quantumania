@@ -10,16 +10,22 @@ class SocketService {
   connect() {
     const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3849';
     
+    console.log('🔌 Attempting to connect to socket:', SOCKET_URL);
+    
     if (this.socket) {
       this.disconnect();
     }
 
     this.socket = io(SOCKET_URL, {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       upgrade: true,
       rememberUpgrade: true,
       timeout: 20000,
-      autoConnect: true
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      forceNew: true
     });
 
     this.setupEventListeners();
@@ -44,6 +50,19 @@ class SocketService {
     this.socket.on('connect_error', (error) => {
       console.error('🔥 Socket connection error:', error);
       this.isConnected = false;
+      console.error('Error details:', {
+        message: error.message,
+        type: error.type,
+        transport: error.transport
+      });
+    });
+
+    this.socket.on('reconnect_error', (error) => {
+      console.error('🔥 Socket reconnection error:', error);
+    });
+
+    this.socket.on('reconnect_failed', () => {
+      console.error('🔥 Socket reconnection failed - giving up');
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
@@ -130,6 +149,14 @@ class SocketService {
 
   // Status checks
   isSocketConnected() {
+    const status = {
+      hasSocket: !!this.socket,
+      isConnected: this.isConnected,
+      socketConnected: this.socket?.connected,
+      socketId: this.socket?.id
+    };
+    
+    console.log('🔍 Checking socket connection:', status);
     return this.isConnected && this.socket?.connected;
   }
 
